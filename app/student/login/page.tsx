@@ -3,7 +3,7 @@
 import Link from "next/link"
 import { Button } from "@/components/ui/button"
 
-export default function StudentStudent LoginPage() {
+export default function StudentLoginPage() {
   return (
     <main className="mx-auto max-w-md px-4 py-12 sm:px-6 lg:px-8">
       <div className="rounded-3xl border bg-white p-8 shadow-sm">
