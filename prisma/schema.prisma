@@ -1,0 +1,612 @@
+// Prisma Schema for Andrew's Apparel
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ============ USER MANAGEMENT ============
+
+enum UserRole {
+  CUSTOMER
+  ADMIN
+  STUDENT
+}
+
+model User {
+  id            String    @id @default(cuid())
+  email         String    @unique
+  password      String
+  name          String
+  phone         String?
+  role          UserRole  @default(CUSTOMER)
+  emailVerified Boolean   @default(false)
+  avatar        String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  // Relations
+  orders              Order[]
+  customSewRequests   CustomSewRequest[]
+  measurementProfiles MeasurementProfile[]
+  reviews             Review[]
+  wishlistItems       WishlistItem[]
+  addresses           Address[]
+  loyaltyPoints       LoyaltyPoints?
+  referralCode        ReferralCode?
+  usedReferralCode    ReferralCode?         @relation("UsedReferral", fields: [usedReferralCodeId], references: [id])
+  usedReferralCodeId  String?
+  studentEnrollment   StudentEnrollment?
+
+  @@index([email])
+  @@index([role])
+}
+
+model Address {
+  id        String  @id @default(cuid())
+  userId    String
+  user      User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  fullName  String
+  phone     String
+  address1  String
+  address2  String?
+  city      String
+  state     String
+  country   String  @default("Nigeria")
+  zipCode   String?
+  isDefault Boolean @default(false)
+
+  orders Order[]
+
+  @@index([userId])
+}
+
+// ============ PRODUCT CATALOG ============
+
+model Category {
+  id          String    @id @default(cuid())
+  name        String    @unique
+  slug        String    @unique
+  description String?
+  image       String?
+  parentId    String?
+  parent      Category? @relation("CategoryTree", fields: [parentId], references: [id])
+  children    Category[] @relation("CategoryTree")
+  isActive    Boolean   @default(true)
+  displayOrder Int      @default(0)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  products Product[]
+
+  @@index([slug])
+  @@index([parentId])
+}
+
+model Product {
+  id          String   @id @default(cuid())
+  name        String
+  slug        String   @unique
+  description String
+  categoryId  String
+  category    Category @relation(fields: [categoryId], references: [id])
+  basePrice   Float
+  images      String[] // Array of image URLs
+  fabricType  String?
+  gender      String? // Male, Female, Unisex
+  isActive    Boolean  @default(true)
+  isFeatured  Boolean  @default(false)
+  sku         String?  @unique
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Relations
+  variants      ProductVariant[]
+  reviews       Review[]
+  orderItems    OrderItem[]
+  wishlistItems WishlistItem[]
+
+  @@index([slug])
+  @@index([categoryId])
+  @@index([isActive, isFeatured])
+}
+
+model ProductVariant {
+  id        String  @id @default(cuid())
+  productId String
+  product   Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+  size      String? // S, M, L, XL, XXL, etc.
+  color     String?
+  price     Float?  // Override base price if different
+  sku       String? @unique
+  stock     Int     @default(0)
+  images    String[] // Variant-specific images
+
+  orderItems OrderItem[]
+
+  @@unique([productId, size, color])
+  @@index([productId])
+}
+
+// ============ ORDERS & PAYMENTS ============
+
+enum OrderStatus {
+  PENDING
+  PAID
+  PROCESSING
+  SEWING
+  SHIPPED
+  DELIVERED
+  CANCELLED
+  REFUNDED
+}
+
+enum PaymentStatus {
+  PENDING
+  COMPLETED
+  FAILED
+  REFUNDED
+}
+
+enum PaymentMethod {
+  STRIPE
+  PAYSTACK
+  BANK_TRANSFER
+}
+
+model Order {
+  id              String        @id @default(cuid())
+  orderNumber     String        @unique
+  userId          String
+  user            User          @relation(fields: [userId], references: [id])
+  status          OrderStatus   @default(PENDING)
+  subtotal        Float
+  shippingFee     Float
+  discount        Float         @default(0)
+  tax             Float         @default(0)
+  total           Float
+  paymentStatus   PaymentStatus @default(PENDING)
+  paymentMethod   PaymentMethod?
+  shippingAddressId String
+  shippingAddress Address       @relation(fields: [shippingAddressId], references: [id])
+  trackingNumber  String?
+  notes           String?
+  couponCode      String?
+  coupon          Coupon?       @relation(fields: [couponCode], references: [code])
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  items    OrderItem[]
+  payments Payment[]
+
+  @@index([userId])
+  @@index([orderNumber])
+  @@index([status])
+}
+
+model OrderItem {
+  id        String  @id @default(cuid())
+  orderId   String
+  order     Order   @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  productId String
+  product   Product @relation(fields: [productId], references: [id])
+  variantId String?
+  variant   ProductVariant? @relation(fields: [variantId], references: [id])
+  quantity  Int
+  price     Float
+  subtotal  Float
+
+  @@index([orderId])
+  @@index([productId])
+}
+
+model Payment {
+  id              String        @id @default(cuid())
+  orderId         String?
+  order           Order?        @relation(fields: [orderId], references: [id])
+  customSewId     String?       @unique
+  customSewRequest CustomSewRequest? @relation(fields: [customSewId], references: [id])
+  enrollmentId    String?       @unique
+  enrollment      StudentEnrollment? @relation(fields: [enrollmentId], references: [id])
+  amount          Float
+  currency        String        @default("NGN")
+  status          PaymentStatus @default(PENDING)
+  method          PaymentMethod
+  transactionId   String?       @unique
+  metadata        Json?
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  @@index([transactionId])
+  @@index([status])
+}
+
+// ============ CUSTOM SEWING ============
+
+enum CustomSewStatus {
+  SUBMITTED
+  QUOTED
+  PAID
+  SEWING
+  READY
+  SHIPPED
+  DELIVERED
+  CANCELLED
+}
+
+enum OutfitType {
+  AGBADA
+  NATIVE
+  JALABIYA
+  ANKARA
+  VINTAGE
+  OTHER
+}
+
+enum FabricOption {
+  CUSTOMER_PROVIDED
+  FROM_CATALOG
+}
+
+enum Timeline {
+  STANDARD
+  EXPRESS
+}
+
+model CustomSewRequest {
+  id                String          @id @default(cuid())
+  referenceNumber   String          @unique
+  userId            String
+  user              User            @relation(fields: [userId], references: [id])
+  status            CustomSewStatus @default(SUBMITTED)
+  gender            String
+  outfitType        OutfitType
+  fabricOption      FabricOption
+  fabricId          String?
+  fabric            FabricCatalog?  @relation(fields: [fabricId], references: [id])
+  fabricNotes       String?
+  measurementProfileId String?
+  measurementProfile MeasurementProfile? @relation(fields: [measurementProfileId], references: [id])
+  customMeasurements Json?
+  timeline          Timeline
+  shippingAddress   String
+  notes             String?
+  styleGalleryId    String?
+  styleGallery      StyleGallery?   @relation(fields: [styleGalleryId], references: [id])
+  quote             Float?
+  quotedAt          DateTime?
+  paidAt            DateTime?
+  completedAt       DateTime?
+  trackingNumber    String?
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+
+  files   CustomSewFile[]
+  payment Payment?
+
+  @@index([userId])
+  @@index([referenceNumber])
+  @@index([status])
+}
+
+model CustomSewFile {
+  id        String           @id @default(cuid())
+  requestId String
+  request   CustomSewRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  fileUrl   String
+  fileType  String // front, back, detail, etc.
+  createdAt DateTime         @default(now())
+
+  @@index([requestId])
+}
+
+model MeasurementProfile {
+  id         String   @id @default(cuid())
+  userId     String
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name       String // e.g., "Chika - Normal Fit"
+  gender     String
+  measurements Json   // Flexible JSON structure for all measurements
+  isDefault  Boolean  @default(false)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  customSewRequests CustomSewRequest[]
+
+  @@index([userId])
+}
+
+model FabricCatalog {
+  id          String    @id @default(cuid())
+  name        String
+  description String?
+  type        String // Cotton, Silk, Ankara, Lace, etc.
+  color       String?
+  pattern     String?
+  pricePerYard Float
+  image       String?
+  inStock     Boolean   @default(true)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  customSewRequests CustomSewRequest[]
+
+  @@index([type])
+}
+
+model StyleGallery {
+  id          String   @id @default(cuid())
+  name        String
+  description String?
+  outfitType  OutfitType
+  gender      String
+  images      String[]
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  customSewRequests CustomSewRequest[]
+
+  @@index([outfitType])
+  @@index([gender])
+}
+
+// ============ FASHION SCHOOL ============
+
+enum CourseLevel {
+  BEGINNER
+  INTERMEDIATE
+  ADVANCED
+}
+
+enum EnrollmentStatus {
+  PENDING
+  PAID
+  ACTIVE
+  COMPLETED
+  CANCELLED
+}
+
+model Course {
+  id          String      @id @default(cuid())
+  name        String
+  slug        String      @unique
+  description String
+  level       CourseLevel
+  duration    String // e.g., "3 months", "6 weeks"
+  price       Float
+  image       String?
+  syllabus    Json? // Course outline as JSON
+  isActive    Boolean     @default(true)
+  maxStudents Int?
+  startDate   DateTime?
+  endDate     DateTime?
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  enrollments StudentEnrollment[]
+  schedules   CourseSchedule[]
+
+  @@index([slug])
+  @@index([level])
+}
+
+model StudentEnrollment {
+  id          String           @id @default(cuid())
+  userId      String           @unique
+  user        User             @relation(fields: [userId], references: [id])
+  courseId    String
+  course      Course           @relation(fields: [courseId], references: [id])
+  status      EnrollmentStatus @default(PENDING)
+  documents   String[] // Uploaded document URLs
+  enrolledAt  DateTime         @default(now())
+  completedAt DateTime?
+  notes       String?
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+
+  payment Payment?
+
+  @@index([userId])
+  @@index([courseId])
+  @@index([status])
+}
+
+model CourseSchedule {
+  id        String   @id @default(cuid())
+  courseId  String
+  course    Course   @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  title     String
+  date      DateTime
+  startTime String
+  endTime   String
+  location  String?
+  topic     String?
+  instructor String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([courseId])
+  @@index([date])
+}
+
+model Announcement {
+  id        String   @id @default(cuid())
+  title     String
+  content   String
+  isActive  Boolean  @default(true)
+  priority  Int      @default(0)
+  targetAudience String @default("ALL") // ALL, STUDENTS, CUSTOMERS
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([isActive])
+}
+
+// ============ SUPPORTING FEATURES ============
+
+model Review {
+  id        String   @id @default(cuid())
+  productId String
+  product   Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  rating    Int // 1-5
+  title     String?
+  comment   String
+  isVerified Boolean @default(false) // Verified purchase
+  isApproved Boolean @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([productId])
+  @@index([userId])
+}
+
+model WishlistItem {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  productId String
+  product   Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@unique([userId, productId])
+  @@index([userId])
+}
+
+model Coupon {
+  id          String    @id @default(cuid())
+  code        String    @unique
+  description String?
+  discountType String   // PERCENTAGE, FIXED_AMOUNT
+  discountValue Float
+  minPurchase Float?
+  maxDiscount Float?
+  usageLimit  Int?
+  usageCount  Int       @default(0)
+  startDate   DateTime
+  endDate     DateTime
+  isActive    Boolean   @default(true)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  orders Order[]
+
+  @@index([code])
+  @@index([isActive])
+}
+
+model ShippingZone {
+  id          String  @id @default(cuid())
+  name        String
+  country     String
+  state       String?
+  shippingFee Float
+  isActive    Boolean @default(true)
+
+  @@index([country])
+  @@index([state])
+}
+
+model LoyaltyPoints {
+  id            String   @id @default(cuid())
+  userId        String   @unique
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  totalPoints   Int      @default(0)
+  availablePoints Int    @default(0)
+  lifetimePoints Int     @default(0)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([userId])
+}
+
+model ReferralCode {
+  id          String   @id @default(cuid())
+  userId      String   @unique
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  code        String   @unique
+  discountValue Float  @default(10) // Percentage discount
+  usageCount  Int      @default(0)
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  usedBy User[] @relation("UsedReferral")
+
+  @@index([code])
+}
+
+model FabricSwatchRequest {
+  id          String   @id @default(cuid())
+  email       String
+  phone       String
+  name        String
+  address     String
+  fabricIds   String[] // Array of fabric IDs
+  status      String   @default("PENDING") // PENDING, APPROVED, SHIPPED, DELIVERED
+  notes       String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([email])
+  @@index([status])
+}
+
+// ============ CONTENT MANAGEMENT ============
+
+model HomepageSection {
+  id          String   @id @default(cuid())
+  section     String   @unique // hero, featured, testimonials, etc.
+  content     Json
+  isActive    Boolean  @default(true)
+  displayOrder Int     @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([section])
+}
+
+model Testimonial {
+  id        String   @id @default(cuid())
+  name      String
+  role      String? // Customer, Student
+  content   String
+  rating    Int      @default(5)
+  image     String?
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([isActive])
+}
+
+model FAQ {
+  id        String   @id @default(cuid())
+  question  String
+  answer    String
+  category  String // Shipping, Measurements, Returns, etc.
+  displayOrder Int   @default(0)
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([category])
+  @@index([isActive])
+}
+
+model Policy {
+  id        String   @id @default(cuid())
+  type      String   @unique // PRIVACY, TERMS, RETURNS, DELIVERY
+  title     String
+  content   String
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([type])
+}
