@@ -3,20 +3,19 @@ const nextConfig = {
   images: {
     remotePatterns: [
       {
-        protocol: 'https',
-        hostname: 'images.unsplash.com',
+        protocol: "https",
+        hostname: "images.unsplash.com",
       },
       {
-        protocol: 'https',
-        hostname: 'res.cloudinary.com',
+        protocol: "https",
+        hostname: "picsum.photos",
       },
+      {
+        protocol: "https",
+        hostname: "source.unsplash.com",
+      }
     ],
   },
-  experimental: {
-    serverActions: {
-      bodySizeLimit: '10mb',
-    },
-  },
-};
+}
 
-module.exports = nextConfig;
+module.exports = nextConfig
